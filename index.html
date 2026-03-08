@@ -1614,13 +1614,13 @@ async function detectAssetBase(gender){
   return ASSET_BASE;
 }
 
-async function listNumberedPngs(basePath, max=200){
+async function listNumberedPngs(basePath, max=80){
   const key = `${basePath}__${max}`;
   if (__numberedListCache.has(key)) return __numberedListCache.get(key);
   const prom = (async ()=>{
     const found=[];
     let emptyBatchStreak=0;
-    const batchSize = 12;
+    const batchSize = 10;
     for (let start=1; start<=max; start+=batchSize){
       const batch = [];
       for (let i=start; i<Math.min(start+batchSize, max+1); i++){
@@ -1635,7 +1635,7 @@ async function listNumberedPngs(basePath, max=200){
         emptyBatchStreak = 0;
       } else {
         emptyBatchStreak++;
-        if (found.length>=3 && emptyBatchStreak>=2) break;
+        if (found.length>=2 && emptyBatchStreak>=2) break;
       }
     }
     return found;
@@ -1645,7 +1645,7 @@ async function listNumberedPngs(basePath, max=200){
 }
 
 async function pickNumberedAsset(basePath, rng){
-  const list = await listNumberedPngs(basePath, 200);
+  const list = await listNumberedPngs(basePath, 80);
   if (!list.length) return null;
   return choice(rng, list);
 }
@@ -4355,6 +4355,30 @@ document.addEventListener("DOMContentLoaded", function(){
 
 
 <script>
+/* lightweight warm preload for facial hair folders */
+(function(){
+  function run(){
+    try{
+      const gender = (document.getElementById('gender') && document.getElementById('gender').value) || 'male';
+      const base = (typeof ASSET_BASE !== 'undefined' && ASSET_BASE) ? ASSET_BASE : 'assets';
+      const colors = ['brown','black','blonde','red','white','grey'];
+      const jobs = [];
+      colors.forEach(c=>{
+        jobs.push(listNumberedPngs(`${base}/${gender}/beards/${c}`, 60));
+        jobs.push(listNumberedPngs(`${base}/${gender}/stache/${c}`, 60));
+        jobs.push(listNumberedPngs(`${base}/${gender}/sideburns/${c}`, 60));
+      });
+      Promise.allSettled(jobs).catch(()=>{});
+    }catch(_){}
+  }
+  window.addEventListener('load', ()=>{
+    if ('requestIdleCallback' in window) requestIdleCallback(run, {timeout: 1200});
+    else setTimeout(run, 700);
+  });
+})();
+</script>
+
+<script>
 /* compact background loader */
 (function(){
   const box = document.getElementById('bgLoader');
@@ -4424,7 +4448,7 @@ document.addEventListener("DOMContentLoaded", function(){
     }
   };
 
-  ['buildBtn','spinBtn','refreshBtn','loadJsonBtn'].forEach(id=>{
+  ['buildBtn','spinBtn','refreshBtn','importBtn','pickFileBtn','importPasteBtn','favImport','favLoad'].forEach(id=>{
     const el = document.getElementById(id);
     if(el){
       el.addEventListener('click', ()=>{
