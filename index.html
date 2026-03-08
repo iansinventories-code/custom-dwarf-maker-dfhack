@@ -715,10 +715,6 @@ z-index:50;
             <div class="writerSectionTitle">Identity + Equipment</div>
             <div class="writerFieldGrid writerFieldGrid--ageItems">
               <div>
-                <div class="small">Name</div>
-                <input id="rpName" type="text" placeholder="Uvash Stokerlabors">
-              </div>
-              <div>
                 <div class="small">Age</div>
                 <input id="rpAge" type="text" placeholder="83">
               </div>
@@ -2239,15 +2235,9 @@ function fillMindBox(j){
 function fillRpBox(j){
   try{
     const lines=[];
-    if (j.name) {
-      lines.push(`Name: ${j.name}`);
-      if (rpNameEl) rpNameEl.value = String(j.name);
-    }
+    if (j.name) lines.push(`Name: ${j.name}`);
     if (j.profession) lines.push(`Profession: ${j.profession}`);
-    if (typeof j.age === "number") {
-      lines.push(`Age: ${j.age}`);
-      if (rpAgeEl && !rpAgeEl.value) rpAgeEl.value = String(j.age);
-    }
+    if (typeof j.age === "number") lines.push(`Age: ${j.age}`);
     if (j.gender) lines.push(`Gender: ${j.gender}`);
     if (typeof j.unit_id === "number") lines.push(`Unit ID: ${j.unit_id}`);
     rpBox.textContent = lines.length ? lines.join("\n") : "(no RP fields found in this JSON)";
@@ -3123,12 +3113,9 @@ async function cyclePart(partKey, dir){
   state.idx = i;
 
   const pick = state.list[i];
-  const cleanPick = stripCacheBuster(pick);
   layer.src = pick + (pick.includes("?") ? "&" : "?") + "v=" + Date.now();
-  window.__resolvedLayers = window.__resolvedLayers || {};
-  window.__resolvedLayers[partKey] = cleanPick;
   if (partKey === 'eyes') {
-    layer.dataset.openSrc = cleanPick;
+    layer.dataset.openSrc = stripCacheBuster(pick);
   }
   if (partKey === 'body') {
     await updateMiscModeFromBodySrc(pick);
@@ -3141,7 +3128,7 @@ async function cyclePart(partKey, dir){
     }
     const row = document.getElementById('miscItemRow');
     if (row) row.style.display = '';
-    window.__resolvedLayers.misc_item = cleanPick;
+    window.__resolvedLayers.misc_item = stripCacheBuster(pick);
   }
 
   resortLayers();
@@ -3321,7 +3308,6 @@ const rpWriterEl = document.getElementById('rpWriter');
 const rpVoiceEl = document.getElementById('rpVoice');
 const rpHooksEl = document.getElementById('rpHooks');
 
-const rpNameEl = document.getElementById('rpName');
 const rpAgeEl = document.getElementById('rpAge');
 const itemHeadwearEl = document.getElementById('itemHeadwear');
 const itemArmorEl = document.getElementById('itemArmor');
@@ -3345,7 +3331,7 @@ const familyParentsEl = document.getElementById('familyParents');
 const familyNotesEl = document.getElementById('familyNotes');
 
 const RP_FORM_IDS = [
-  'rpWriter','rpVoice','rpHooks','rpName','rpAge','itemHeadwear','itemArmor','itemBoots','itemWeapon','itemTrinket',
+  'rpWriter','rpVoice','rpHooks','rpAge','itemHeadwear','itemArmor','itemBoots','itemWeapon','itemTrinket',
   'rpAilments','rpWounds','rpTreatments','rpHealthHistory',
   'groupReligion','groupCivilization','groupGuild','groupFaction',
   'familySpouse','familyChildren','familyParents','familyNotes'
@@ -3403,7 +3389,6 @@ function getRpFormState(){
     writer: rpWriterEl ? (rpWriterEl.value || '') : '',
     voice: rpVoiceEl ? (rpVoiceEl.value || '') : '',
     hooks: rpHooksEl ? (rpHooksEl.value || '') : '',
-    name: rpNameEl ? (rpNameEl.value || '') : '',
     age: rpAgeEl ? (rpAgeEl.value || '') : '',
     items: {
       headwear: itemHeadwearEl ? (itemHeadwearEl.value || '') : '',
@@ -3438,7 +3423,6 @@ function applyRpFormState(state){
   if(rpWriterEl) rpWriterEl.value = s.writer ?? s.rpWriter ?? '';
   if(rpVoiceEl) rpVoiceEl.value = s.voice ?? s.rpVoice ?? '';
   if(rpHooksEl) rpHooksEl.value = s.hooks ?? s.rpHooks ?? '';
-  if(rpNameEl) rpNameEl.value = s.name ?? s.rpName ?? '';
   if(rpAgeEl) rpAgeEl.value = s.age || '';
   if(itemHeadwearEl) itemHeadwearEl.value = s.items?.headwear || '';
   if(itemArmorEl) itemArmorEl.value = s.items?.armor || '';
@@ -3566,71 +3550,13 @@ function inferResolvedLayersFromLayerSrcs(layerSrcs){
     else if (low.includes('/stache/') || low.includes('/mustache/') || low.includes('/moustache/')) out.stache = s;
     else if (low.includes('/nose/')) out.nose = s;
     else if (low.includes('/hat/')) out.hat = s;
-    else if (low.includes('/accessories2/')) out.accessories2 = s;
-    else if (low.includes('/accessories/')) out.accessories = s;
-    else if (low.includes('/misc-items/') || low.includes('/misc_item/') || low.includes('/misc-item/')) out.misc_item = s;
   });
   return out;
 }
 
 function getResolvedLayersState(){
-  let out = {};
-  try{ out = JSON.parse(JSON.stringify(window.__resolvedLayers || {})); }
-  catch(e){ out = Object.assign({}, window.__resolvedLayers || {}); }
-  const inferred = inferResolvedLayersFromLayerSrcs(getCurrentLayerSrcs());
-  out = Object.assign({}, out, inferred);
-  return out;
-}
-
-async function restoreSavedLayersExact(saved){
-  try{
-    const srcMap = (saved && saved.resolvedLayers && Object.keys(saved.resolvedLayers).length)
-      ? saved.resolvedLayers
-      : inferResolvedLayersFromLayerSrcs((saved && saved.layerSrcs) || []);
-    if(!srcMap || !Object.keys(srcMap).length) return;
-
-    const keys = ["accessories2","body","head","accessories","eyes","mouth","hairback","hair","sideburns","brows","beard","stache","nose","hat","misc_item"];
-    window.__resolvedLayers = window.__resolvedLayers || {};
-
-    for(const key of keys){
-      const raw = srcMap[key];
-      if(!raw) continue;
-      const clean = stripCacheBuster(String(raw || ""));
-      if(!clean) continue;
-      const ok = await testImage(clean);
-      if(!ok) continue;
-
-      let layer = document.querySelector(`#dwarfWrap .layer[data-key="${key}"]`);
-      if(!layer){
-        layer = ensureLayer(key);
-      }
-      layer.src = clean + (clean.includes("?") ? "&" : "?") + "v=" + Date.now();
-      window.__resolvedLayers[key] = clean;
-      if(key === "eyes"){
-        layer.dataset.openSrc = clean;
-      }
-      if(key === "body"){
-        window.__bodyMiscActive = /\/body\/misc\//i.test(clean) || /\\body\\misc\\/i.test(clean);
-      }
-    }
-
-    if(!window.__bodyMiscActive){
-      const misc = document.querySelector('#dwarfWrap .layer[data-key="misc_item"]');
-      if(misc) misc.remove();
-      delete window.__resolvedLayers.misc_item;
-    }
-
-    resortLayers();
-    removeDuplicateLayersByKey("body");
-    removeDuplicateLayersByKey("accessories2");
-    removeDuplicateLayersByKey("hat");
-    removeDuplicateLayersByKey("misc_item");
-    applyLayerWarpControls();
-    refreshMiscBadge();
-    startBlinkLoop();
-  }catch(err){
-    console.warn("restoreSavedLayersExact failed:", err);
-  }
+  try{ return JSON.parse(JSON.stringify(window.__resolvedLayers || {})); }
+  catch(e){ return Object.assign({}, window.__resolvedLayers || {}); }
 }
 function clearResolvedOverrides(){
   window.__resolvedLayersOverride = null;
@@ -3812,14 +3738,13 @@ function renderFavorites(){
   if(favTagsEl) favTagsEl.value = cur?.tags || '';
 }
 
-async function loadFavorite(i){
+function loadFavorite(i){
   const f = favorites[i];
   if(!f) return;
   if((!f.resolvedLayers || !Object.keys(f.resolvedLayers).length) && Array.isArray(f.layerSrcs) && f.layerSrcs.length){
     f.resolvedLayers = inferResolvedLayersFromLayerSrcs(f.layerSrcs);
   }
   if(!f.dfJson && f.state && f.state.__lastImport) f.dfJson = f.state.__lastImport;
-
   applyControlState(f.state);
   if(favNotesEl) favNotesEl.value = f.notes || '';
   if(favTagsEl) favTagsEl.value = f.tags || '';
@@ -3829,6 +3754,8 @@ async function loadFavorite(i){
   window.__resolvedLayersOverride = f.resolvedLayers || null;
   window.__mouthFrontOverride = (typeof f.mouthFront === 'boolean') ? f.mouthFront : null;
   window.__eyeOverrideBucket = f.eyeOverrideBucket || null;
+  if(window.__lastDfImport) renderEyePreviewFromJson(window.__lastDfImport);
+  if(window.__eyeOverrideBucket) setEyePreview('manual override', window.__eyeOverrideBucket);
 
   const rp = document.getElementById('rp');
   if(rp) rp.textContent = f.rpText != null ? f.rpText : "(RP data will appear here after import)";
@@ -3839,22 +3766,8 @@ async function loadFavorite(i){
   const grid = document.getElementById('dfMindGrid');
   if(grid) grid.innerHTML = f.dfMindGridHtml || '';
 
-  if(typeof buildFromUi === 'function') await buildFromUi();
-  await restoreSavedLayersExact(f);
-
-  if(window.__lastDfImport) renderEyePreviewFromJson(window.__lastDfImport);
-  if(window.__eyeOverrideBucket) setEyePreview('manual override', window.__eyeOverrideBucket);
-
-  if(f.partWarp){
-    try{
-      window.__partWarp = JSON.parse(JSON.stringify(f.partWarp));
-    }catch(e){
-      window.__partWarp = Object.assign({}, f.partWarp);
-    }
-  }
-  window.__currentWarpPart = f.currentWarpPart || window.__currentWarpPart || 'beard';
-  syncWarpPanel();
-  applyLayerWarpControls();
+  // rebuild
+  if(typeof buildFromUi === 'function') buildFromUi();
   renderFavorites();
 }
 
@@ -3874,7 +3787,6 @@ function currentProfile(){
 }
 
 async function saveCurrentFavorite(){
-  await ensureLayersReady(1200);
   const s = getControlState();
   const prof = currentProfile();
   const fav = {
@@ -3886,8 +3798,6 @@ async function saveCurrentFavorite(){
     resolvedLayers: getResolvedLayersState(),
     mouthFront: !!window.__mouthFront,
     eyeOverrideBucket: window.__eyeOverrideBucket || null,
-    partWarp: JSON.parse(JSON.stringify(window.__partWarp || {})),
-    currentWarpPart: window.__currentWarpPart || 'beard',
     name: prof.name || (s.seed ? `Seed ${s.seed}` : 'Unnamed'),
     prof: prof.prof || '',
     unitId: prof.unitId || '',
@@ -3949,8 +3859,6 @@ function currentHybridFromUi(){
     resolvedLayers,
     mouthFront: !!window.__mouthFront,
     eyeOverrideBucket: window.__eyeOverrideBucket || null,
-    partWarp: JSON.parse(JSON.stringify(window.__partWarp || {})),
-    currentWarpPart: window.__currentWarpPart || 'beard',
     name: prof.name || 'Unnamed',
     prof: prof.prof || '',
     unitId: prof.unitId || '',
@@ -3993,8 +3901,6 @@ function normalizeImportedFavoriteObject(obj){
       copy.resolvedLayers = inferResolvedLayersFromLayerSrcs(copy.layerSrcs);
     }
     if(!copy.dfJson && copy.state && copy.state.__lastImport) copy.dfJson = copy.state.__lastImport;
-    if(!copy.partWarp) copy.partWarp = JSON.parse(JSON.stringify(window.__partWarp || {}));
-    if(!copy.currentWarpPart) copy.currentWarpPart = 'beard';
     return [copy];
   }
   return [];
@@ -4023,7 +3929,7 @@ function importFavoritesJsonFiles(fileList){
         }
       }
     };
-    reader.onerror = ()=>{ pending--; if(pending===0){ if(imported.length){ favorites = [...imported, ...favorites]; favIndex = favorites.length ? 0 : -1; saveFavorites(); renderFavorites(); if(favIndex >= 0) setTimeout(()=>loadFavorite(favIndex), 0); } } };
+    reader.onerror = ()=>{ pending--; if(pending===0){ if(imported.length){ favorites = [...imported, ...favorites]; favIndex = favorites.length ? 0 : -1; saveFavorites(); renderFavorites(); if(favIndex >= 0) loadFavorite(favIndex); } } };
     reader.readAsText(file);
   });
 }
@@ -4355,6 +4261,97 @@ document.addEventListener("DOMContentLoaded", function(){
     if (typeof syncFavoriteMetaFromWriter === 'function') syncFavoriteMetaFromWriter();
   });
 });
+</script>
+
+
+<script>
+/* loader hotfix: never let the overlay get stuck */
+(function(){
+  const overlay = document.getElementById('loaderOverlay');
+  const fill = document.getElementById('loaderFill');
+  const text = document.getElementById('loaderText');
+  const meta = document.getElementById('loaderMeta');
+
+  let loaderTimer = null;
+  let loaderForceKill = null;
+
+  function hasRenderedDwarf(){
+    const layers = Array.from(document.querySelectorAll('#dwarfWrap img.layer'));
+    return layers.some(img => img.complete && img.naturalWidth > 0);
+  }
+
+  function finishLoaderNow(){
+    if(fill) fill.style.width = '100%';
+    if(loaderTimer){ clearTimeout(loaderTimer); loaderTimer = null; }
+    if(loaderForceKill){ clearTimeout(loaderForceKill); loaderForceKill = null; }
+    setTimeout(()=>{
+      if(overlay) overlay.classList.add('hidden');
+    }, 120);
+  }
+
+  function armLoaderWatchdog(){
+    if(loaderTimer) clearTimeout(loaderTimer);
+    if(loaderForceKill) clearTimeout(loaderForceKill);
+
+    // normal auto-finish window
+    loaderTimer = setTimeout(()=>{
+      if(hasRenderedDwarf()) finishLoaderNow();
+      else if(text) text.textContent = 'Finalizing render...';
+    }, 1200);
+
+    // hard kill so it never hangs forever
+    loaderForceKill = setTimeout(()=>{
+      finishLoaderNow();
+    }, 3500);
+  }
+
+  // Override existing loader controls safely
+  window.showLoader = function(msg){
+    if(text && msg) text.textContent = msg;
+    if(meta) meta.textContent = 'Preparing generator...';
+    if(fill) fill.style.width = '18%';
+    if(overlay) overlay.classList.remove('hidden');
+    armLoaderWatchdog();
+  };
+
+  window.hideLoader = function(){
+    finishLoaderNow();
+  };
+
+  // Catch successful image renders and close the loader as soon as something is visible
+  const wrap = document.getElementById('dwarfWrap');
+  if(wrap){
+    const mo = new MutationObserver(()=>{
+      const imgs = Array.from(wrap.querySelectorAll('img.layer'));
+      imgs.forEach(img=>{
+        if(img.__loaderHooked) return;
+        img.__loaderHooked = true;
+        const done = ()=>{ if(hasRenderedDwarf()) finishLoaderNow(); };
+        img.addEventListener('load', done, { once:false });
+      });
+      if(hasRenderedDwarf()) finishLoaderNow();
+    });
+    mo.observe(wrap, { childList:true, subtree:true });
+  }
+
+  // Initial startup fallback
+  window.addEventListener('load', ()=>{
+    armLoaderWatchdog();
+    setTimeout(()=>{
+      if(hasRenderedDwarf()) finishLoaderNow();
+    }, 500);
+  });
+
+  // If build/randomize buttons are clicked, show loader briefly but never block forever
+  ['buildBtn','spinBtn','refreshBtn','loadJsonBtn'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){
+      el.addEventListener('click', ()=>{
+        window.showLoader('Loading dwarf assets...');
+      });
+    }
+  });
+})();
 </script>
 
 </body>
