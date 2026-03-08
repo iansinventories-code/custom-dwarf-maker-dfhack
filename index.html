@@ -77,7 +77,61 @@ z-index:50;
     font-weight:700;
     letter-spacing:.6px;
   }
+
   .titlebar .sub{font-size:12px;color:#9fc1db;opacity:.95;}
+  .frame{position:relative;}
+  .bgLoader{
+    position:absolute;
+    top:44px;
+    right:12px;
+    width:260px;
+    padding:7px 8px 8px;
+    background:rgba(192,192,192,0.94);
+    border:2px solid var(--shadow);
+    border-top-color:var(--hi);
+    border-left-color:var(--hi);
+    z-index:25;
+    box-sizing:border-box;
+    pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease;
+  }
+  .bgLoader.hidden{
+    opacity:0;
+    transform:translateY(-6px);
+  }
+  .bgLoaderTop{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    margin-bottom:5px;
+    font-size:10px;
+    text-transform:uppercase;
+    font-weight:700;
+  }
+  .bgLoaderMeta{
+    opacity:.75;
+    white-space:nowrap;
+  }
+  .bgLoaderBar{
+    width:100%;
+    height:10px;
+    background:#8c8c8c;
+    border:2px solid var(--shadow);
+    border-top-color:var(--hi);
+    border-left-color:var(--hi);
+    box-sizing:border-box;
+    overflow:hidden;
+  }
+  .bgLoaderFill{
+    width:0%;
+    height:100%;
+    background:linear-gradient(90deg, #2b4f7b, #7eb2df);
+    transition:width .18s ease;
+  }
+  .bgLoader.compactOnly .bgLoaderBar{display:none;}
+  .bgLoader.compactOnly{width:auto; min-width:180px;}
+
   .left,.mid,.right{
     padding:12px;
     overflow:auto;
@@ -414,6 +468,15 @@ z-index:50;
 <body>
 <div class="frame">
   <div class="titlebar"><div>Custom Dwarf Maker <span class="sub">By IansInventories</span></div><div class="sub"></div></div>
+
+  <div id="bgLoader" class="bgLoader hidden">
+    <div class="bgLoaderTop">
+      <span id="bgLoaderText">Loading assets...</span>
+      <span id="bgLoaderMeta" class="bgLoaderMeta">0 checked</span>
+    </div>
+    <div class="bgLoaderBar"><div id="bgLoaderFill" class="bgLoaderFill"></div></div>
+  </div>
+
   <div class="left">
 <div class="panel">
       <h1>DF Import Probe</h1>
@@ -1507,14 +1570,33 @@ function randomLen(rng){
 // ---------- Local-safe asset validation ----------
 const __imgExistsCache = new Map();
 const __numberedListCache = new Map();
+const __assetProbeState = { checked:0, hits:0, active:0, visible:false, barEnabled:true };
+
+function notifyAssetProbe(){
+  try{
+    if (typeof window.updateBackgroundLoader === "function") {
+      window.updateBackgroundLoader(__assetProbeState);
+    }
+  }catch(_){}
+}
+
 function testImage(url){
   const clean = stripCacheBuster(url||'');
   if (__imgExistsCache.has(clean)) return __imgExistsCache.get(clean);
+  __assetProbeState.checked++;
+  __assetProbeState.active++;
+  notifyAssetProbe();
   const prom = new Promise(resolve=>{
     const img = new Image();
-    img.onload = ()=>resolve(true);
-    img.onerror = ()=>resolve(false);
-    img.src = clean + (clean.includes("?") ? "&" : "?") + "v=" + Date.now();
+    const done = (ok)=>{
+      if (ok) __assetProbeState.hits++;
+      __assetProbeState.active = Math.max(0, __assetProbeState.active - 1);
+      notifyAssetProbe();
+      resolve(ok);
+    };
+    img.onload = ()=>done(true);
+    img.onerror = ()=>done(false);
+    img.src = clean;
   });
   __imgExistsCache.set(clean, prom);
   return prom;
@@ -1537,16 +1619,23 @@ async function listNumberedPngs(basePath, max=200){
   if (__numberedListCache.has(key)) return __numberedListCache.get(key);
   const prom = (async ()=>{
     const found=[];
-    let misses=0;
-    for (let i=1;i<=max;i++){
-      const n = String(i).padStart(2,"0");
-      const url = `${basePath}/${n}.png`;
-      if (await testImage(url)){
-        found.push(url);
-        misses=0;
+    let emptyBatchStreak=0;
+    const batchSize = 12;
+    for (let start=1; start<=max; start+=batchSize){
+      const batch = [];
+      for (let i=start; i<Math.min(start+batchSize, max+1); i++){
+        const n = String(i).padStart(2,"0");
+        const url = `${basePath}/${n}.png`;
+        batch.push(Promise.resolve(testImage(url)).then(ok=> ok ? url : null));
+      }
+      const results = await Promise.all(batch);
+      const hits = results.filter(Boolean);
+      if (hits.length){
+        found.push(...hits);
+        emptyBatchStreak = 0;
       } else {
-        misses++;
-        if (found.length>=3 && misses>=5) break;
+        emptyBatchStreak++;
+        if (found.length>=3 && emptyBatchStreak>=2) break;
       }
     }
     return found;
@@ -4264,92 +4353,88 @@ document.addEventListener("DOMContentLoaded", function(){
 </script>
 
 
+
 <script>
-/* loader hotfix: never let the overlay get stuck */
+/* compact background loader */
 (function(){
-  const overlay = document.getElementById('loaderOverlay');
-  const fill = document.getElementById('loaderFill');
-  const text = document.getElementById('loaderText');
-  const meta = document.getElementById('loaderMeta');
+  const box = document.getElementById('bgLoader');
+  const fill = document.getElementById('bgLoaderFill');
+  const text = document.getElementById('bgLoaderText');
+  const meta = document.getElementById('bgLoaderMeta');
 
-  let loaderTimer = null;
-  let loaderForceKill = null;
+  let hideTimer = null;
+  let cycleStart = 0;
+  let manualMode = false;
 
-  function hasRenderedDwarf(){
-    const layers = Array.from(document.querySelectorAll('#dwarfWrap img.layer'));
-    return layers.some(img => img.complete && img.naturalWidth > 0);
+  function setVisible(on){
+    if(!box) return;
+    box.classList.toggle('hidden', !on);
   }
 
-  function finishLoaderNow(){
-    if(fill) fill.style.width = '100%';
-    if(loaderTimer){ clearTimeout(loaderTimer); loaderTimer = null; }
-    if(loaderForceKill){ clearTimeout(loaderForceKill); loaderForceKill = null; }
-    setTimeout(()=>{
-      if(overlay) overlay.classList.add('hidden');
-    }, 120);
+  function setFill(pct){
+    if(!fill) return;
+    const v = Math.max(0, Math.min(100, pct||0));
+    fill.style.width = v + '%';
   }
 
-  function armLoaderWatchdog(){
-    if(loaderTimer) clearTimeout(loaderTimer);
-    if(loaderForceKill) clearTimeout(loaderForceKill);
-
-    // normal auto-finish window
-    loaderTimer = setTimeout(()=>{
-      if(hasRenderedDwarf()) finishLoaderNow();
-      else if(text) text.textContent = 'Finalizing render...';
-    }, 1200);
-
-    // hard kill so it never hangs forever
-    loaderForceKill = setTimeout(()=>{
-      finishLoaderNow();
-    }, 3500);
-  }
-
-  // Override existing loader controls safely
-  window.showLoader = function(msg){
+  function finishSoon(msg){
     if(text && msg) text.textContent = msg;
-    if(meta) meta.textContent = 'Preparing generator...';
-    if(fill) fill.style.width = '18%';
-    if(overlay) overlay.classList.remove('hidden');
-    armLoaderWatchdog();
+    setFill(100);
+    if(hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(()=>{
+      manualMode = false;
+      setVisible(false);
+      if(fill) fill.style.width = '0%';
+    }, 650);
+  }
+
+  window.showLoader = function(msg){
+    cycleStart = performance.now();
+    manualMode = true;
+    if(text) text.textContent = msg || 'Loading assets...';
+    if(meta) meta.textContent = 'starting';
+    setFill(8);
+    setVisible(true);
   };
 
   window.hideLoader = function(){
-    finishLoaderNow();
+    finishSoon('Ready');
   };
 
-  // Catch successful image renders and close the loader as soon as something is visible
-  const wrap = document.getElementById('dwarfWrap');
-  if(wrap){
-    const mo = new MutationObserver(()=>{
-      const imgs = Array.from(wrap.querySelectorAll('img.layer'));
-      imgs.forEach(img=>{
-        if(img.__loaderHooked) return;
-        img.__loaderHooked = true;
-        const done = ()=>{ if(hasRenderedDwarf()) finishLoaderNow(); };
-        img.addEventListener('load', done, { once:false });
-      });
-      if(hasRenderedDwarf()) finishLoaderNow();
-    });
-    mo.observe(wrap, { childList:true, subtree:true });
-  }
+  window.updateBackgroundLoader = function(state){
+    if(!box || !state) return;
+    if(state.checked > 0 || manualMode || state.active > 0){
+      setVisible(true);
+    }
+    const elapsed = Math.max(0, performance.now() - (cycleStart || performance.now()));
+    const active = Number(state.active||0);
+    const checked = Number(state.checked||0);
+    const hits = Number(state.hits||0);
+    const basePct = checked ? Math.min(92, 18 + (hits / checked) * 42 + Math.min(32, checked * 0.18)) : 12;
+    const pulse = active > 0 ? Math.min(6, (elapsed / 180) % 6) : 0;
+    if(text){
+      text.textContent = active > 0 ? 'Scanning assets...' : (manualMode ? 'Building dwarf...' : 'Ready');
+    }
+    if(meta){
+      meta.textContent = `${checked} checked • ${hits} found` + (active > 0 ? ` • ${active} active` : '');
+    }
+    setFill(active > 0 ? Math.min(96, basePct + pulse) : Math.max(basePct, 100));
+    if(active === 0 && checked > 0){
+      finishSoon('Ready');
+    }
+  };
 
-  // Initial startup fallback
-  window.addEventListener('load', ()=>{
-    armLoaderWatchdog();
-    setTimeout(()=>{
-      if(hasRenderedDwarf()) finishLoaderNow();
-    }, 500);
-  });
-
-  // If build/randomize buttons are clicked, show loader briefly but never block forever
   ['buildBtn','spinBtn','refreshBtn','loadJsonBtn'].forEach(id=>{
     const el = document.getElementById(id);
     if(el){
       el.addEventListener('click', ()=>{
-        window.showLoader('Loading dwarf assets...');
+        window.showLoader('Loading assets...');
       });
     }
+  });
+
+  window.addEventListener('load', ()=>{
+    setVisible(false);
   });
 })();
 </script>
